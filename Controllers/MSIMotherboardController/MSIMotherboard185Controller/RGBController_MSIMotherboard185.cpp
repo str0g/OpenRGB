@@ -209,7 +209,7 @@ void RGBController_MSIMotherboard185::SetupZones()
 
             if(!(zones[zone_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_SIZE))
             {
-                zones[zone_idx].leds_count              = 0;
+                zones[zone_idx].leds_count              = controller->GetDefaultDirectLeds(zd->zone_type);
             }
 
             if(!(zones[zone_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_TYPE))

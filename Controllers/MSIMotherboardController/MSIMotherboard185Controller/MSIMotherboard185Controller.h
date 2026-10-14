@@ -84,6 +84,11 @@ public:
                         unsigned char   led_num
                         );
 
+    size_t          GetDefaultDirectLeds
+                        (
+                        MSI_ZONE        zone
+                        );
+
     bool            Update
                         (
                         bool save
@@ -153,6 +158,9 @@ private:
                         MSI_ZONE            zone
                         );
     RainbowZoneData* GetRainbowZoneData(MSI_ZONE zone);
+    unsigned char   GetZoneSyncColorFlag(MSI_ZONE zone);
+    bool            ZoneUsesJRGBSyncBit(MSI_ZONE zone);
+    void            SetZoneOwnSlot(MSI_ZONE zone);
     Color*          GetPerLedZoneData
                         (
                         MSI_ZONE zone

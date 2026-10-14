@@ -710,6 +710,13 @@ void MSIMotherboard185Controller::SetMode
             }
         }
     }
+
+    /*-----------------------------------------------------*\
+    | Give the zone its own record.  While its combine bit  |
+    | is set the firmware renders this header from the      |
+    | onboard master and ignores the settings above.        |
+    \*-----------------------------------------------------*/
+    SetZoneOwnSlot(zone);
 }
 
 std::string MSIMotherboard185Controller::GetDeviceName()
@@ -889,6 +896,12 @@ void MSIMotherboard185Controller::SetZoneColor
     zone_data->color2.R = red2;
     zone_data->color2.G = grn2;
     zone_data->color2.B = blu2;
+
+    /*-----------------------------------------------------*\
+    | A combined header renders from the onboard master, so |
+    | give the zone its own record before setting colors    |
+    \*-----------------------------------------------------*/
+    SetZoneOwnSlot(zone);
 
     /*-----------------------------------------------------*\
     | If the zone is JRGB or JPIPE and the board has no     |
@@ -1244,6 +1257,68 @@ MSI_MODE MSIMotherboard185Controller::GetMode()
     }
 }
 
+/*---------------------------------------------------------*\
+| The onboard LED record (offset 74) also acts as the sync  |
+| master.  Its colorFlags byte carries one combine bit per  |
+| header, its speed/brightness byte carries the JRGB bit.   |
+| While a header's bit is set the firmware renders that     |
+| header from the master record and ignores the header's    |
+| own record, so a mode or color written to a combined      |
+| header reads back changed but is never displayed.         |
+|                                                           |
+| MSI Center clears the bit first (Set_SwitchToPerLEDMode), |
+| so do the same before configuring a zone on its own.      |
+\*---------------------------------------------------------*/
+unsigned char MSIMotherboard185Controller::GetZoneSyncColorFlag(MSI_ZONE zone)
+{
+    switch(zone)
+    {
+        case MSI_ZONE_J_RAINBOW_1:
+            return MSI_COLOR_FLAG_SYNC_SETTING_JRAINBOW1;
+        case MSI_ZONE_J_RAINBOW_2:
+            return MSI_COLOR_FLAG_SYNC_SETTING_JRAINBOW2;
+        case MSI_ZONE_J_RAINBOW_3:
+        case MSI_ZONE_J_CORSAIR:
+            return MSI_COLOR_FLAG_SYNC_SETTING_JCORSAIR;
+        case MSI_ZONE_J_PIPE_1:
+            return MSI_COLOR_FLAG_SYNC_SETTING_JPIPE1;
+        case MSI_ZONE_J_PIPE_2:
+            return MSI_COLOR_FLAG_SYNC_SETTING_JPIPE2;
+        default:
+            return 0x00;
+    }
+}
+
+bool MSIMotherboard185Controller::ZoneUsesJRGBSyncBit(MSI_ZONE zone)
+{
+    return ((zone == MSI_ZONE_J_RGB_1) || (zone == MSI_ZONE_J_RGB_2));
+}
+
+void MSIMotherboard185Controller::SetZoneOwnSlot(MSI_ZONE zone)
+{
+    ZoneData* on_board_zone = GetZoneData(data, MSI_ZONE_ON_BOARD_LED_0);
+
+    /*-----------------------------------------------------*\
+    | Return if the board has no sync master record         |
+    \*-----------------------------------------------------*/
+    if(on_board_zone == nullptr)
+    {
+        return;
+    }
+
+    unsigned char sync_flag = GetZoneSyncColorFlag(zone);
+
+    if(sync_flag != 0x00)
+    {
+        on_board_zone->colorFlags &= (unsigned char)~sync_flag;
+    }
+
+    if(ZoneUsesJRGBSyncBit(zone))
+    {
+        on_board_zone->speedAndBrightnessFlags &= (unsigned char)~MSI_SPEED_BRIGHTNESS_FLAG_SYNC_SETTING_JRGB;
+    }
+}
+
 void MSIMotherboard185Controller::GetMode
     (
     MSI_ZONE zone,
@@ -1292,6 +1367,49 @@ void MSIMotherboard185Controller::SetZoneLEDCount
 
     requested_zone->cycle_or_led_num = led_num;
     SelectPerLedProtocol();
+}
+
+size_t MSIMotherboard185Controller::GetDefaultDirectLeds(MSI_ZONE zone)
+{
+    size_t led_num = 0;
+
+    /*-----------------------------------------------------*\
+    | The firmware stores the configured length of each     |
+    | addressable header in its own record.  Effect modes   |
+    | are written per zone, so a zone needs at least one    |
+    | LED for its record to be sent at all.                 |
+    \*-----------------------------------------------------*/
+    if((zone == MSI_ZONE_J_RAINBOW_1) || (zone == MSI_ZONE_J_RAINBOW_2))
+    {
+        RainbowZoneData* rainbow_zone = GetRainbowZoneData(zone);
+
+        if(rainbow_zone != nullptr)
+        {
+            led_num = rainbow_zone->cycle_or_led_num;
+        }
+    }
+    else if((zone == MSI_ZONE_J_RAINBOW_3) || (zone == MSI_ZONE_J_CORSAIR))
+    {
+        CorsairZoneData* corsair_zone = (CorsairZoneData*)GetZoneData(data, zone);
+
+        if(corsair_zone != nullptr)
+        {
+            led_num = corsair_zone->is_individual;
+        }
+    }
+    else
+    {
+        return GetMaxDirectLeds(zone);
+    }
+
+    size_t max_leds = GetMaxDirectLeds(zone);
+
+    if((led_num == 0) || (led_num > max_leds))
+    {
+        return 1;
+    }
+
+    return led_num;
 }
 
 void MSIMotherboard185Controller::SetDirectMode
